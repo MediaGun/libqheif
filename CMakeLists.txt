@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.21)
 
+# macOS (before project(), which reads them; other systems ignore them): universal, like MediaGun.
+set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "")
+set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0 CACHE STRING "") # Qt 6.12's minimum
+
 project(qheif VERSION 1.0.0 LANGUAGES CXX
     DESCRIPTION "Qt image plugin reading HEIC/HEIF and AVIF through libheif")
 
@@ -10,11 +14,6 @@ option(QHEIF_BUILD_TESTS "Build the tests" ON)
 
 if(QHEIF_DEPS_PREFIX)
     list(PREPEND CMAKE_PREFIX_PATH "${QHEIF_DEPS_PREFIX}")
-endif()
-
-if(APPLE)
-    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "")
-    set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0 CACHE STRING "") # Qt 6.12's minimum
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
