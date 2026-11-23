@@ -128,16 +128,23 @@ jobs:
           path: ${{ env.deps_prefix }}
           key: deps-windows-${{ hashFiles('deps/**') }}
 
+      # PowerShell, not bash: Git's /usr/bin/link.exe would come before MSVC's (meson stops on it).
       - name: Build libheif, libde265, dav1d
         if: steps.deps_cache.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
-          cmake -S deps -B build-deps -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_INSTALL_PREFIX="$deps_prefix"
+          cmake -S deps -B build-deps -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "-DCMAKE_INSTALL_PREFIX=$env:deps_prefix"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build build-deps
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Build the plugin
+        shell: pwsh
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DQHEIF_DEPS_PREFIX="$deps_prefix" -DCMAKE_INSTALL_PREFIX="$install_prefix"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "-DQHEIF_DEPS_PREFIX=$env:deps_prefix" "-DCMAKE_INSTALL_PREFIX=$env:install_prefix"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
