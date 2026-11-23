@@ -1,0 +1,234 @@
+name: Build
+run-name: Build ${{ github.ref_name }}
+
+# Builds libheif, libde265 and dav1d (deps/), then the plugin, tests it and packs a zip per
+# platform. The zip is extracted into Qt's folder (MediaGun's build.yaml does it, like libqpsd):
+#   plugins/imageformats/  the plugin
+#   lib/ (Linux, macOS) or bin/ (Windows)  libheif, libde265, dav1d
+#   licenses/qheif/  their licences
+# A tag qt-<Qt version>-<n> (qt-6.12.0-1) publishes the zips as a GitHub release.
+
+on:
+  push:
+    branches: [ master ]
+    tags: [ 'qt-*' ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  qt_version: 6.12.0
+  # aqtinstall's latest release can't install Qt 6.11+ on Windows: the commit MediaGun's build uses.
+  aqt_source: git+https://github.com/miurahr/aqtinstall.git@5a49f2b391ae8ee1d3c0dd87f8b33c1d49a4deb7
+  meson_version: 1.10.1
+
+jobs:
+  build_linux:
+    name: Linux
+    # The oldest Ubuntu MediaGun supports: the libraries then load on newer ones too.
+    runs-on: ubuntu-22.04
+    env:
+      deps_prefix: ${{ github.workspace }}/deps-prefix
+      install_prefix: ${{ github.workspace }}/install
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build nasm libgl1-mesa-dev libxkbcommon0
+          pip install "meson==$meson_version"
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          aqtsource: ${{ env.aqt_source }}
+          version: ${{ env.qt_version }}
+          dir: ${{ github.workspace }}/qt
+
+      - name: Cache libheif, libde265, dav1d
+        id: deps_cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.deps_prefix }}
+          key: deps-linux-${{ hashFiles('deps/**') }}
+
+      - name: Build libheif, libde265, dav1d
+        if: steps.deps_cache.outputs.cache-hit != 'true'
+        run: |
+          cmake -S deps -B build-deps -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$deps_prefix"
+          cmake --build build-deps
+
+      - name: Build the plugin
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DQHEIF_DEPS_PREFIX="$deps_prefix" -DCMAKE_INSTALL_PREFIX="$install_prefix"
+          cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Pack
+        run: |
+          cmake --install build
+          cd "$install_prefix" && cmake -E tar cf "$GITHUB_WORKSPACE/libqheif-linux.zip" --format=zip .
+          unzip -l "$GITHUB_WORKSPACE/libqheif-linux.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libqheif-linux
+          path: libqheif-linux.zip
+
+  build_windows:
+    name: Windows
+    runs-on: windows-2022
+    env:
+      deps_prefix: ${{ github.workspace }}/deps-prefix
+      install_prefix: ${{ github.workspace }}/install
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # Forward slashes: the paths go into CMake arguments, where backslashes are escapes.
+      - name: Paths
+        run: |
+          echo "deps_prefix=$(cygpath -m "$deps_prefix")" >> "$GITHUB_ENV"
+          echo "install_prefix=$(cygpath -m "$install_prefix")" >> "$GITHUB_ENV"
+
+      - name: Install tools
+        run: |
+          choco install nasm --no-progress -y
+          echo "C:/Program Files/NASM" >> "$GITHUB_PATH"
+          pip install "meson==$meson_version" ninja
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          aqtsource: ${{ env.aqt_source }}
+          version: ${{ env.qt_version }}
+          arch: win64_msvc2022_64
+          dir: ${{ github.workspace }}/qt
+
+      - name: Cache libheif, libde265, dav1d
+        id: deps_cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.deps_prefix }}
+          key: deps-windows-${{ hashFiles('deps/**') }}
+
+      - name: Build libheif, libde265, dav1d
+        if: steps.deps_cache.outputs.cache-hit != 'true'
+        run: |
+          cmake -S deps -B build-deps -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_INSTALL_PREFIX="$deps_prefix"
+          cmake --build build-deps
+
+      - name: Build the plugin
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DQHEIF_DEPS_PREFIX="$deps_prefix" -DCMAKE_INSTALL_PREFIX="$install_prefix"
+          cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Pack
+        run: |
+          cmake --install build
+          cd "$install_prefix" && cmake -E tar cf "$GITHUB_WORKSPACE/libqheif-windows.zip" --format=zip .
+          7z l "$GITHUB_WORKSPACE/libqheif-windows.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libqheif-windows
+          path: libqheif-windows.zip
+
+  build_macos:
+    name: macOS
+    runs-on: macos-15
+    env:
+      deps_prefix: ${{ github.workspace }}/deps-prefix
+      install_prefix: ${{ github.workspace }}/install
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          brew install nasm ninja meson
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          aqtsource: ${{ env.aqt_source }}
+          version: ${{ env.qt_version }}
+          dir: ${{ github.workspace }}/qt
+
+      - name: Cache libheif, libde265, dav1d
+        id: deps_cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.deps_prefix }}
+          key: deps-macos-${{ hashFiles('deps/**', 'tools/merge-macos.sh') }}
+
+      # One build per architecture (dav1d can't build both at once), merged into universal libraries.
+      - name: Build libheif, libde265, dav1d
+        if: steps.deps_cache.outputs.cache-hit != 'true'
+        run: |
+          for arch in arm64 x86_64; do
+            cmake -S deps -B "build-deps-$arch" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_ARCHITECTURES=$arch -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/deps-$arch" \
+              -DDOWNLOAD_DIR="$GITHUB_WORKSPACE/deps-download"
+            cmake --build "build-deps-$arch"
+          done
+          tools/merge-macos.sh deps-arm64 deps-x86_64 "$deps_prefix"
+
+      - name: Build the plugin
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DQHEIF_DEPS_PREFIX="$deps_prefix" -DCMAKE_INSTALL_PREFIX="$install_prefix"
+          cmake --build build
+          lipo -info build/plugins/imageformats/libqheif.dylib
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Pack
+        run: |
+          cmake --install build
+          otool -L "$install_prefix/plugins/imageformats/libqheif.dylib"
+          otool -l "$install_prefix/plugins/imageformats/libqheif.dylib" | grep -A2 LC_RPATH
+          cd "$install_prefix" && cmake -E tar cf "$GITHUB_WORKSPACE/libqheif-macos.zip" --format=zip .
+          unzip -l "$GITHUB_WORKSPACE/libqheif-macos.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libqheif-macos
+          path: libqheif-macos.zip
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/qt-')
+    needs: [ build_linux, build_windows, build_macos ]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: libqheif-*.zip
+          generate_release_notes: true
