@@ -55,26 +55,14 @@ if(QHEIF_INSTALL_DEPS)
         # Next to the application's executable, like Qt's own DLLs.
         install(DIRECTORY "${QHEIF_DEPS_PREFIX}/bin/" DESTINATION bin
             FILES_MATCHING PATTERN "heif.dll" PATTERN "libde265.dll" PATTERN "dav1d.dll")
+    elseif(APPLE)
+        install(DIRECTORY "${QHEIF_DEPS_PREFIX}/lib/" DESTINATION lib
+            FILES_MATCHING PATTERN "libheif*.dylib" PATTERN "libde265*.dylib" PATTERN "libdav1d*.dylib"
+            PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE)
     else()
-        # Only the file each library is loaded by (its soname / install name: libheif.so.1,
-        # libheif.1.dylib), as a regular file, no symlinks: tools that extract or copy the zip
-        # don't all keep symlinks, and a symlink turned into a small text file stops the plugin
-        # from loading.
-        if(APPLE)
-            file(GLOB QHEIF_DEP_LIBS "${QHEIF_DEPS_PREFIX}/lib/lib*.[0-9].dylib")
-        else()
-            file(GLOB QHEIF_DEP_LIBS "${QHEIF_DEPS_PREFIX}/lib/lib*.so.[0-9]")
-        endif()
-        list(FILTER QHEIF_DEP_LIBS INCLUDE REGEX "/lib(heif|de265|dav1d)(\\.[0-9]+\\.dylib|\\.so\\.[0-9]+)$")
-        list(LENGTH QHEIF_DEP_LIBS QHEIF_DEP_LIB_COUNT)
-        if(NOT QHEIF_DEP_LIB_COUNT EQUAL 3)
-            message(FATAL_ERROR "Expected libheif, libde265 and libdav1d in ${QHEIF_DEPS_PREFIX}/lib, found: ${QHEIF_DEP_LIBS}")
-        endif()
-        foreach(QHEIF_DEP_LIB IN LISTS QHEIF_DEP_LIBS)
-            file(REAL_PATH "${QHEIF_DEP_LIB}" QHEIF_DEP_LIB_FILE)
-            cmake_path(GET QHEIF_DEP_LIB FILENAME QHEIF_DEP_LIB_NAME)
-            install(FILES "${QHEIF_DEP_LIB_FILE}" DESTINATION lib RENAME "${QHEIF_DEP_LIB_NAME}")
-        endforeach()
+        install(DIRECTORY "${QHEIF_DEPS_PREFIX}/lib/" DESTINATION lib
+            FILES_MATCHING PATTERN "libheif.so*" PATTERN "libde265.so*" PATTERN "libdav1d.so*"
+            PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE)
     endif()
     install(DIRECTORY "${QHEIF_DEPS_PREFIX}/licenses/" DESTINATION licenses/qheif)
 endif()
