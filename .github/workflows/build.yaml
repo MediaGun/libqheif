@@ -2,7 +2,9 @@ name: Build
 run-name: Build ${{ github.ref_name }}
 
 # Builds libheif, libde265 and dav1d (deps/), then the plugin, tests it and packs a zip per
-# platform. The zip is extracted into Qt's folder (MediaGun's build.yaml does it, like libqpsd):
+# platform. On Linux and macOS the zip holds libqheif.tar, which keeps the libraries' symlinks
+# (as MediaGun/qtwebengine does): extract it with tar. On Windows the zip holds the files. Either is
+# extracted into Qt's folder (MediaGun's build.yaml does it):
 #   plugins/imageformats/  the plugin
 #   lib/ (Linux, macOS) or bin/ (Windows)  libheif, libde265, dav1d
 #   licenses/qheif/  their licences
@@ -77,8 +79,11 @@ jobs:
       - name: Pack
         run: |
           cmake --install build
-          cd "$install_prefix" && cmake -E tar cf "$GITHUB_WORKSPACE/libqheif-linux.zip" --format=zip .
-          unzip -l "$GITHUB_WORKSPACE/libqheif-linux.zip"
+          # A tar inside the zip: the libraries' symlinks (libheif.so.1 -> libheif.so.1.23.7) survive
+          # any zip tool, as for MediaGun/qtwebengine.
+          tar -cvf "$GITHUB_WORKSPACE/libqheif.tar" -C "$install_prefix" .
+          cd "$GITHUB_WORKSPACE" && cmake -E tar cf libqheif-linux.zip --format=zip libqheif.tar
+          unzip -l libqheif-linux.zip
 
       - uses: actions/upload-artifact@v4
         with:
@@ -214,8 +219,10 @@ jobs:
           cmake --install build
           otool -L "$install_prefix/plugins/imageformats/libqheif.dylib"
           otool -l "$install_prefix/plugins/imageformats/libqheif.dylib" | grep -A2 LC_RPATH
-          cd "$install_prefix" && cmake -E tar cf "$GITHUB_WORKSPACE/libqheif-macos.zip" --format=zip .
-          unzip -l "$GITHUB_WORKSPACE/libqheif-macos.zip"
+          # A tar inside the zip, as on Linux: the symlinks survive.
+          tar -cvf "$GITHUB_WORKSPACE/libqheif.tar" -C "$install_prefix" .
+          cd "$GITHUB_WORKSPACE" && cmake -E tar cf libqheif-macos.zip --format=zip libqheif.tar
+          unzip -l libqheif-macos.zip
 
       - uses: actions/upload-artifact@v4
         with:

@@ -62,6 +62,10 @@ CI (`.github/workflows/build.yaml`) builds and tests every push and pull request
 22.04), Windows and macOS (universal). A tag `qt-<Qt version>-<n>`, e.g. `qt-6.12.0-1`, publishes
 `libqheif-linux.zip`, `libqheif-windows.zip` and `libqheif-macos.zip` as a GitHub release.
 
+The Linux and macOS zips hold `libqheif.tar`, which keeps the libraries' symlinks (zip tools don't
+all restore them): extract it into Qt's folder with `unzip libqheif-linux.zip && tar -xf libqheif.tar
+-C <Qt>/gcc_64`. The Windows zip holds the files themselves.
+
 ## Licence
 
 The plugin is under the LGPL-2.0-or-later (`LICENSE`: LGPL-2.1). libheif and libde265 are under the
